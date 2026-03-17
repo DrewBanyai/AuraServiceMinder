@@ -8,18 +8,10 @@
 #include <XPT2046_Touchscreen.h>
 #include <Preferences.h>
 #include "esp_system.h"
+
 #include "translations.h"
 #include "declarations.h"
-
-#define XPT2046_IRQ 36   // T_IRQ
-#define XPT2046_MOSI 32  // T_DIN
-#define XPT2046_MISO 39  // T_OUT
-#define XPT2046_CLK 25   // T_CLK
-#define XPT2046_CS 33    // T_CS
-#define LCD_BACKLIGHT_PIN 21
-#define SCREEN_WIDTH 240
-#define SCREEN_HEIGHT 320
-#define DRAW_BUF_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
+#include "screen_control.h"
 
 #define LATITUDE_DEFAULT "51.5074"
 #define LONGITUDE_DEFAULT "-0.1278"
@@ -27,16 +19,7 @@
 #define DEFAULT_CAPTIVE_SSID "Aura"
 #define UPDATE_INTERVAL 600000UL  // 10 minutes
 
-// Night mode starts at 10pm and ends at 6am
-#define NIGHT_MODE_START_HOUR 22
-#define NIGHT_MODE_END_HOUR 6
-
 static Language current_language = LANG_EN;
-
-SPIClass touchscreenSPI = SPIClass(VSPI);
-XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
-uint32_t draw_buf[DRAW_BUF_SIZE / 4];
-int x, y, z;
 
 // Preferences
 static Preferences prefs;
@@ -46,7 +29,7 @@ static bool use_night_mode = false;
 static char latitude[16] = LATITUDE_DEFAULT;
 static char longitude[16] = LONGITUDE_DEFAULT;
 static String location = String(LOCATION_DEFAULT);
-static char dd_opts[512];
+static char dropdown_options[512];
 static DynamicJsonDocument geoDoc(8 * 1024);
 static JsonArray geoResults;
 
@@ -89,8 +72,6 @@ void fetch_and_update_weather();
 void create_settings_window();
 static void screen_event_cb(lv_event_t *e);
 static void settings_event_handler(lv_event_t *e);
-const lv_img_dsc_t *choose_image(int wmo_code, int is_day);
-const lv_img_dsc_t *choose_icon(int wmo_code, int is_day);
 
 // Screen dimming functions
 bool night_mode_should_be_active();
@@ -239,12 +220,8 @@ void setup() {
 
   lv_init();
 
-  // Init touchscreen
-  touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touchscreen.begin(touchscreenSPI);
-  touchscreen.setRotation(0);
-
-  lv_display_t *disp = lv_tft_espi_create(SCREEN_WIDTH, SCREEN_HEIGHT, draw_buf, sizeof(draw_buf));
+  initTouchscreen();
+  
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touchscreen_read);
@@ -440,19 +417,19 @@ void create_ui() {
 }
 
 void populate_results_dropdown() {
-  dd_opts[0] = '\0';
+  dropdown_options[0] = '\0';
   for (JsonObject item : geoResults) {
-    strcat(dd_opts, item["name"].as<const char *>());
+    strcat(dropdown_options, item["name"].as<const char *>());
     if (item["admin1"]) {
-      strcat(dd_opts, ", ");
-      strcat(dd_opts, item["admin1"].as<const char *>());
+      strcat(dropdown_options, ", ");
+      strcat(dropdown_options, item["admin1"].as<const char *>());
     }
 
-    strcat(dd_opts, "\n");
+    strcat(dropdown_options, "\n");
   }
 
   if (geoResults.size() > 0) {
-    lv_dropdown_set_options_static(results_dd, dd_opts);
+    lv_dropdown_set_options_static(results_dd, dropdown_options);
     lv_obj_add_flag(results_dd, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_color(btn_close_loc, lv_palette_main(LV_PALETTE_GREEN), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(btn_close_loc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -1038,212 +1015,4 @@ void fetch_and_update_weather() {
     Serial.println("HTTP GET failed at " + url);
   }
   http.end();
-}
-
-const lv_img_dsc_t* choose_image(int code, int is_day) {
-  switch (code) {
-    // Clear sky
-    case  0:
-      return is_day
-        ? &image_sunny
-        : &image_clear_night;
-
-    // Mainly clear
-    case  1:
-      return is_day
-        ? &image_mostly_sunny
-        : &image_mostly_clear_night;
-
-    // Partly cloudy
-    case  2:
-      return is_day
-        ? &image_partly_cloudy
-        : &image_partly_cloudy_night;
-
-    // Overcast
-    case  3:
-      return &image_cloudy;
-
-    // Fog / mist
-    case 45:
-    case 48:
-      return &image_haze_fog_dust_smoke;
-
-    // Drizzle (light → dense)
-    case 51:
-    case 53:
-    case 55:
-      return &image_drizzle;
-
-    // Freezing drizzle
-    case 56:
-    case 57:
-      return &image_sleet_hail;
-
-    // Rain: slight showers
-    case 61:
-      return is_day
-        ? &image_scattered_showers_day
-        : &image_scattered_showers_night;
-
-    // Rain: moderate
-    case 63:
-      return &image_showers_rain;
-
-    // Rain: heavy
-    case 65:
-      return &image_heavy_rain;
-
-    // Freezing rain
-    case 66:
-    case 67:
-      return &image_wintry_mix_rain_snow;
-
-    // Snow fall (light, moderate, heavy) & snow showers (light)
-    case 71:
-    case 73:
-    case 75:
-    case 85:
-      return &image_snow_showers_snow;
-
-    // Snow grains
-    case 77:
-      return &image_flurries;
-
-    // Rain showers (slight → moderate)
-    case 80:
-    case 81:
-      return is_day
-        ? &image_scattered_showers_day
-        : &image_scattered_showers_night;
-
-    // Rain showers: violent
-    case 82:
-      return &image_heavy_rain;
-
-    // Heavy snow showers
-    case 86:
-      return &image_heavy_snow;
-
-    // Thunderstorm (light)
-    case 95:
-      return is_day
-        ? &image_isolated_scattered_tstorms_day
-        : &image_isolated_scattered_tstorms_night;
-
-    // Thunderstorm with hail
-    case 96:
-    case 99:
-      return &image_strong_tstorms;
-
-    // Fallback for any other code
-    default:
-      return is_day
-        ? &image_mostly_cloudy_day
-        : &image_mostly_cloudy_night;
-  }
-}
-
-const lv_img_dsc_t* choose_icon(int code, int is_day) {
-  switch (code) {
-    // Clear sky
-    case  0:
-      return is_day
-        ? &icon_sunny
-        : &icon_clear_night;
-
-    // Mainly clear
-    case  1:
-      return is_day
-        ? &icon_mostly_sunny
-        : &icon_mostly_clear_night;
-
-    // Partly cloudy
-    case  2:
-      return is_day
-        ? &icon_partly_cloudy
-        : &icon_partly_cloudy_night;
-
-    // Overcast
-    case  3:
-      return &icon_cloudy;
-
-    // Fog / mist
-    case 45:
-    case 48:
-      return &icon_haze_fog_dust_smoke;
-
-    // Drizzle (light → dense)
-    case 51:
-    case 53:
-    case 55:
-      return &icon_drizzle;
-
-    // Freezing drizzle
-    case 56:
-    case 57:
-      return &icon_sleet_hail;
-
-    // Rain: slight showers
-    case 61:
-      return is_day
-        ? &icon_scattered_showers_day
-        : &icon_scattered_showers_night;
-
-    // Rain: moderate
-    case 63:
-      return &icon_showers_rain;
-
-    // Rain: heavy
-    case 65:
-      return &icon_heavy_rain;
-
-    // Freezing rain
-    case 66:
-    case 67:
-      return &icon_wintry_mix_rain_snow;
-
-    // Snow fall (light, moderate, heavy) & snow showers (light)
-    case 71:
-    case 73:
-    case 75:
-    case 85:
-      return &icon_snow_showers_snow;
-
-    // Snow grains
-    case 77:
-      return &icon_flurries;
-
-    // Rain showers (slight → moderate)
-    case 80:
-    case 81:
-      return is_day
-        ? &icon_scattered_showers_day
-        : &icon_scattered_showers_night;
-
-    // Rain showers: violent
-    case 82:
-      return &icon_heavy_rain;
-
-    // Heavy snow showers
-    case 86:
-      return &icon_heavy_snow;
-
-    // Thunderstorm (light)
-    case 95:
-      return is_day
-        ? &icon_isolated_scattered_tstorms_day
-        : &icon_isolated_scattered_tstorms_night;
-
-    // Thunderstorm with hail
-    case 96:
-    case 99:
-      return &icon_strong_tstorms;
-
-    // Fallback for any other code
-    default:
-      return is_day
-        ? &icon_mostly_cloudy_day
-        : &icon_mostly_cloudy_night;
-  }
 }
