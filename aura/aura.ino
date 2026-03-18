@@ -1,7 +1,4 @@
 #include <Arduino.h>
-#include <WiFiManager.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
 #include <time.h>
 #include <lvgl.h>
 #include <TFT_eSPI.h>
@@ -12,11 +9,11 @@
 #include "translations.h"
 #include "declarations.h"
 #include "screen_control.h"
+#include "web.h"
 
 #define LATITUDE_DEFAULT "51.5074"
 #define LONGITUDE_DEFAULT "-0.1278"
 #define LOCATION_DEFAULT "London"
-#define DEFAULT_CAPTIVE_SSID "Aura"
 #define UPDATE_INTERVAL 600000UL  // 10 minutes
 
 static Language current_language = LANG_EN;
@@ -30,8 +27,6 @@ static char latitude[16] = LATITUDE_DEFAULT;
 static char longitude[16] = LONGITUDE_DEFAULT;
 static String location = String(LOCATION_DEFAULT);
 static char dropdown_options[512];
-static DynamicJsonDocument geoDoc(8 * 1024);
-static JsonArray geoResults;
 
 // Screen dimming variables
 static bool night_mode_active = false;
@@ -109,23 +104,6 @@ String hour_of_day(int hour) {
   }
 }
 
-String urlencode(const String &str) {
-  String encoded = "";
-  char buf[5];
-  for (size_t i = 0; i < str.length(); i++) {
-    char c = str.charAt(i);
-    // Unreserved characters according to RFC 3986
-    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
-      encoded += c;
-    } else {
-      // Percent-encode others
-      sprintf(buf, "%%%02X", (unsigned char)c);
-      encoded += buf;
-    }
-  }
-  return encoded;
-}
-
 static void update_clock(lv_timer_t *timer) {
   struct tm timeinfo;
 
@@ -163,7 +141,10 @@ static void kb_event_cb(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_READY) {
     const char *loc = lv_textarea_get_text(loc_ta);
     if (strlen(loc) > 0) {
-      do_geocode_query(loc);
+      bool success = false;
+      do_geocode_query(loc, &success);
+      if (success)
+        populate_results_dropdown();
     }
   }
 }
@@ -531,8 +512,7 @@ static void reset_wifi_event_handler(lv_event_t *e) {
 static void reset_confirm_yes_cb(lv_event_t *e) {
   lv_obj_t *mbox = (lv_obj_t *)lv_event_get_user_data(e);
   Serial.println("Clearing Wi-Fi creds and rebooting");
-  WiFiManager wm;
-  wm.resetSettings();
+  reset_wifi();
   delay(100);
   esp_restart();
 }
@@ -878,141 +858,84 @@ void handle_temp_screen_wakeup_timeout(lv_timer_t *timer) {
   }
 }
 
-void do_geocode_query(const char *q) {
-  geoDoc.clear();
-  String url = String("https://geocoding-api.open-meteo.com/v1/search?name=") + urlencode(q) + "&count=15";
-
-  HTTPClient http;
-  http.begin(url);
-  if (http.GET() == HTTP_CODE_OK) {
-    Serial.println("Completed location search at open-meteo: " + url);
-    auto err = deserializeJson(geoDoc, http.getString());
-    if (!err) {
-      geoResults = geoDoc["results"].as<JsonArray>();
-      populate_results_dropdown();
-    } else {
-        Serial.println("Failed to parse search response from open-meteo: " + url);
-    }
-  } else {
-      Serial.println("Failed location search at open-meteo: " + url);
-  }
-  http.end();
-}
-
 void fetch_and_update_weather() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi no longer connected. Attempting to reconnect...");
-    WiFi.disconnect();
-    WiFiManager wm;  
-    wm.autoConnect(DEFAULT_CAPTIVE_SSID);
-    delay(1000);  
-    if (WiFi.status() != WL_CONNECTED) { 
-      Serial.println("WiFi connection still unavailable.");
-      return;   
+  String url = get_forecast_url(latitude, longitude);
+  DynamicJsonDocument doc(32 * 1024);
+  if (fetch_weather(url, &doc))
+  {
+    float t_now = doc["current"]["temperature_2m"].as<float>();
+    float t_ap = doc["current"]["apparent_temperature"].as<float>();
+    int code_now = doc["current"]["weather_code"].as<int>();
+    int is_day = doc["current"]["is_day"].as<int>();
+
+    if (use_fahrenheit) {
+      t_now = t_now * 9.0 / 5.0 + 32.0;
+      t_ap = t_ap * 9.0 / 5.0 + 32.0;
     }
-    Serial.println("WiFi connection reestablished.");
-  }
+    const LocalizedStrings* strings = get_strings(current_language);
 
+    int utc_offset_seconds = doc["utc_offset_seconds"].as<int>();
+    configTime(utc_offset_seconds, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.print("Updating time from NTP with UTC offset: ");
+    Serial.println(utc_offset_seconds);
 
-  String url = String("http://api.open-meteo.com/v1/forecast?latitude=")
-               + latitude + "&longitude=" + longitude
-               + "&current=temperature_2m,apparent_temperature,is_day,weather_code"
-               + "&daily=temperature_2m_min,temperature_2m_max,weather_code"
-               + "&hourly=temperature_2m,precipitation_probability,is_day,weather_code"
-               + "&forecast_hours=7"
-               + "&timezone=auto";
+    char unit = use_fahrenheit ? 'F' : 'C';
+    lv_label_set_text_fmt(lbl_today_temp, "%.0f°%c", t_now, unit);
+    lv_label_set_text_fmt(lbl_today_feels_like, "%s %.0f°%c", strings->feels_like_temp, t_ap, unit);
+    lv_img_set_src(img_today_icon, choose_image(code_now, is_day));
 
-  HTTPClient http;
-  http.begin(url);
+    JsonArray times = doc["daily"]["time"].as<JsonArray>();
+    JsonArray tmin = doc["daily"]["temperature_2m_min"].as<JsonArray>();
+    JsonArray tmax = doc["daily"]["temperature_2m_max"].as<JsonArray>();
+    JsonArray weather_codes = doc["daily"]["weather_code"].as<JsonArray>();
 
-  if (http.GET() == HTTP_CODE_OK) {
-    Serial.println("Updated weather from open-meteo: " + url);
+    for (int i = 0; i < 7; i++) {
+      const char *date = times[i];
+      int year = atoi(date + 0);
+      int mon = atoi(date + 5);
+      int dayd = atoi(date + 8);
+      int dow = day_of_week(year, mon, dayd);
+      const char *dayStr = (i == 0 && current_language != LANG_FR) ? strings->today : strings->weekdays[dow];
 
-    String payload = http.getString();
-    DynamicJsonDocument doc(32 * 1024);
-
-    if (deserializeJson(doc, payload) == DeserializationError::Ok) {
-      float t_now = doc["current"]["temperature_2m"].as<float>();
-      float t_ap = doc["current"]["apparent_temperature"].as<float>();
-      int code_now = doc["current"]["weather_code"].as<int>();
-      int is_day = doc["current"]["is_day"].as<int>();
-
+      float mn = tmin[i].as<float>();
+      float mx = tmax[i].as<float>();
       if (use_fahrenheit) {
-        t_now = t_now * 9.0 / 5.0 + 32.0;
-        t_ap = t_ap * 9.0 / 5.0 + 32.0;
-      }
-      const LocalizedStrings* strings = get_strings(current_language);
-
-      int utc_offset_seconds = doc["utc_offset_seconds"].as<int>();
-      configTime(utc_offset_seconds, 0, "pool.ntp.org", "time.nist.gov");
-      Serial.print("Updating time from NTP with UTC offset: ");
-      Serial.println(utc_offset_seconds);
-
-      char unit = use_fahrenheit ? 'F' : 'C';
-      lv_label_set_text_fmt(lbl_today_temp, "%.0f°%c", t_now, unit);
-      lv_label_set_text_fmt(lbl_today_feels_like, "%s %.0f°%c", strings->feels_like_temp, t_ap, unit);
-      lv_img_set_src(img_today_icon, choose_image(code_now, is_day));
-
-      JsonArray times = doc["daily"]["time"].as<JsonArray>();
-      JsonArray tmin = doc["daily"]["temperature_2m_min"].as<JsonArray>();
-      JsonArray tmax = doc["daily"]["temperature_2m_max"].as<JsonArray>();
-      JsonArray weather_codes = doc["daily"]["weather_code"].as<JsonArray>();
-
-      for (int i = 0; i < 7; i++) {
-        const char *date = times[i];
-        int year = atoi(date + 0);
-        int mon = atoi(date + 5);
-        int dayd = atoi(date + 8);
-        int dow = day_of_week(year, mon, dayd);
-        const char *dayStr = (i == 0 && current_language != LANG_FR) ? strings->today : strings->weekdays[dow];
-
-        float mn = tmin[i].as<float>();
-        float mx = tmax[i].as<float>();
-        if (use_fahrenheit) {
-          mn = mn * 9.0 / 5.0 + 32.0;
-          mx = mx * 9.0 / 5.0 + 32.0;
-        }
-
-        lv_label_set_text_fmt(lbl_daily_day[i], "%s", dayStr);
-        lv_label_set_text_fmt(lbl_daily_high[i], "%.0f°%c", mx, unit);
-        lv_label_set_text_fmt(lbl_daily_low[i], "%.0f°%c", mn, unit);
-        lv_img_set_src(img_daily[i], choose_icon(weather_codes[i].as<int>(), (i == 0) ? is_day : 1));
+        mn = mn * 9.0 / 5.0 + 32.0;
+        mx = mx * 9.0 / 5.0 + 32.0;
       }
 
-      JsonArray hours = doc["hourly"]["time"].as<JsonArray>();
-      JsonArray hourly_temps = doc["hourly"]["temperature_2m"].as<JsonArray>();
-      JsonArray precipitation_probabilities = doc["hourly"]["precipitation_probability"].as<JsonArray>();
-      JsonArray hourly_weather_codes = doc["hourly"]["weather_code"].as<JsonArray>();
-      JsonArray hourly_is_day = doc["hourly"]["is_day"].as<JsonArray>();
-
-      for (int i = 0; i < 7; i++) {
-        const char *date = hours[i];  // "YYYY-MM-DD"
-        int hour = atoi(date + 11);
-        int minute = atoi(date + 14);
-        String hour_name = hour_of_day(hour);
-
-        float precipitation_probability = precipitation_probabilities[i].as<float>();
-        float temp = hourly_temps[i].as<float>();
-        if (use_fahrenheit) {
-          temp = temp * 9.0 / 5.0 + 32.0;
-        }
-
-        if (i == 0 && current_language != LANG_FR) {
-          lv_label_set_text(lbl_hourly[i], strings->now);
-        } else {
-          lv_label_set_text(lbl_hourly[i], hour_name.c_str());
-        }
-        lv_label_set_text_fmt(lbl_precipitation_probability[i], "%.0f%%", precipitation_probability);
-        lv_label_set_text_fmt(lbl_hourly_temp[i], "%.0f°%c", temp, unit);
-        lv_img_set_src(img_hourly[i], choose_icon(hourly_weather_codes[i].as<int>(), hourly_is_day[i].as<int>()));
-      }
-
-
-    } else {
-      Serial.println("JSON parse failed on result from " + url);
+      lv_label_set_text_fmt(lbl_daily_day[i], "%s", dayStr);
+      lv_label_set_text_fmt(lbl_daily_high[i], "%.0f°%c", mx, unit);
+      lv_label_set_text_fmt(lbl_daily_low[i], "%.0f°%c", mn, unit);
+      lv_img_set_src(img_daily[i], choose_icon(weather_codes[i].as<int>(), (i == 0) ? is_day : 1));
     }
-  } else {
-    Serial.println("HTTP GET failed at " + url);
+
+    JsonArray hours = doc["hourly"]["time"].as<JsonArray>();
+    JsonArray hourly_temps = doc["hourly"]["temperature_2m"].as<JsonArray>();
+    JsonArray precipitation_probabilities = doc["hourly"]["precipitation_probability"].as<JsonArray>();
+    JsonArray hourly_weather_codes = doc["hourly"]["weather_code"].as<JsonArray>();
+    JsonArray hourly_is_day = doc["hourly"]["is_day"].as<JsonArray>();
+
+    for (int i = 0; i < 7; i++) {
+      const char *date = hours[i];  // "YYYY-MM-DD"
+      int hour = atoi(date + 11);
+      int minute = atoi(date + 14);
+      String hour_name = hour_of_day(hour);
+
+      float precipitation_probability = precipitation_probabilities[i].as<float>();
+      float temp = hourly_temps[i].as<float>();
+      if (use_fahrenheit) {
+        temp = temp * 9.0 / 5.0 + 32.0;
+      }
+
+      if (i == 0 && current_language != LANG_FR) {
+        lv_label_set_text(lbl_hourly[i], strings->now);
+      } else {
+        lv_label_set_text(lbl_hourly[i], hour_name.c_str());
+      }
+      lv_label_set_text_fmt(lbl_precipitation_probability[i], "%.0f%%", precipitation_probability);
+      lv_label_set_text_fmt(lbl_hourly_temp[i], "%.0f°%c", temp, unit);
+      lv_img_set_src(img_hourly[i], choose_icon(hourly_weather_codes[i].as<int>(), hourly_is_day[i].as<int>()));
+    }
   }
-  http.end();
 }
