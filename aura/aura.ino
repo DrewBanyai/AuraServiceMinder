@@ -10,6 +10,7 @@
 #include "declarations.h"
 #include "screen_control.h"
 #include "web.h"
+#include "microservice_health.h"
 
 #define LATITUDE_DEFAULT "51.5074"
 #define LONGITUDE_DEFAULT "-0.1278"
@@ -64,6 +65,7 @@ static lv_obj_t *lbl_clock;
 
 void create_ui();
 void fetch_and_update_weather();
+void fetch_api_health_checks();
 void create_settings_window();
 static void screen_event_cb(lv_event_t *e);
 static void settings_event_handler(lv_event_t *e);
@@ -75,6 +77,9 @@ void deactivate_night_mode();
 void check_for_night_mode();
 void handle_temp_screen_wakeup_timeout(lv_timer_t *timer);
 
+static const ServiceHealthEndpoint HEALTH_ENDPOINTS[] = {
+  //  Entries look like this: { "Service Name", "Environment", "URL ENDPOINT" },
+};
 
 int day_of_week(int y, int m, int d) {
   static const int t[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
@@ -230,7 +235,9 @@ void setup() {
 
   lv_obj_clean(lv_scr_act());
   create_ui();
+  Serial.println("Screen Initialized");
   fetch_and_update_weather();
+  fetch_api_health_checks();
 }
 
 void flush_wifi_splashscreen(uint32_t ms = 200) {
@@ -878,6 +885,10 @@ void fetch_and_update_weather() {
     configTime(utc_offset_seconds, 0, "pool.ntp.org", "time.nist.gov");
     Serial.print("Updating time from NTP with UTC offset: ");
     Serial.println(utc_offset_seconds);
+    Serial.print("Weather Acquired. Current temperature: Currently ");
+    Serial.print((int)t_now);
+    Serial.print(" degrees");
+    Serial.println();
 
     char unit = use_fahrenheit ? 'F' : 'C';
     lv_label_set_text_fmt(lbl_today_temp, "%.0f°%c", t_now, unit);
@@ -937,5 +948,56 @@ void fetch_and_update_weather() {
       lv_label_set_text_fmt(lbl_hourly_temp[i], "%.0f°%c", temp, unit);
       lv_img_set_src(img_hourly[i], choose_icon(hourly_weather_codes[i].as<int>(), hourly_is_day[i].as<int>()));
     }
+  }
+}
+
+
+
+static void print_service_health(const char* service, const char* label, const char* url) {
+  HTTPClient http;
+  http.begin(url);
+  int code = http.GET();
+
+  Serial.print(service);
+  Serial.print(" ");
+  Serial.println(label);
+
+  if (code > 0) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(4096);
+    MicroserviceHealthResponse health;
+
+    if (deserializeJson(doc, payload) == DeserializationError::Ok
+        && MicroserviceHealthResponse::fromJson(doc, health)) {
+      Serial.print("  Overall:   "); Serial.println(health.status);
+      Serial.print("  Version:   "); Serial.println(health.version);
+      Serial.print("  Timestamp: "); Serial.println(health.timestamp);
+      for (const HealthComponent& c : health.components) {
+        Serial.print("  ");
+        Serial.print(c.name);
+        Serial.print(": ");
+        Serial.print(c.status);
+        Serial.print("  (");
+        Serial.print(c.response_time_ms);
+        Serial.print("ms)  ");
+        Serial.println(c.message);
+      }
+      Serial.println(health.isHealthy() ? "  >> All components healthy." : "  >> WARNING: One or more components degraded.");
+    } else {
+      Serial.println("  ERROR: Failed to deserialize response.");
+      Serial.println(payload);
+    }
+  } else {
+    Serial.print("  ERROR: HTTP GET failed — ");
+    Serial.println(http.errorToString(code));
+  }
+
+  http.end();
+  Serial.println();
+}
+
+void fetch_api_health_checks() {
+  for (const ServiceHealthEndpoint& e : HEALTH_ENDPOINTS) {
+    print_service_health(e.service, e.label, e.url);
   }
 }
