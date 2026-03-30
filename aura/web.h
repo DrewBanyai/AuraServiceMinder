@@ -53,6 +53,8 @@ void reset_wifi() {
     wm.resetSettings();
 }
 
+
+
 String get_forecast_url(char* latitude, char* longitude)
 {
     return String("http://api.open-meteo.com/v1/forecast?latitude=")

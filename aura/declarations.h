@@ -1,6 +1,8 @@
 #ifndef DECLARATIONS_H
 #define DECLARATIONS_H
 
+#include <lvgl.h>
+
 LV_FONT_DECLARE(lv_font_montserrat_latin_12);
 LV_FONT_DECLARE(lv_font_montserrat_latin_14);
 LV_FONT_DECLARE(lv_font_montserrat_latin_16);

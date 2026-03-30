@@ -1,0 +1,820 @@
+#ifndef WEATHER_APP_UI_H
+#define WEATHER_APP_UI_H
+
+#include <lvgl.h>
+#include "translations.h"
+#include "declarations.h"
+#include "web.h"
+
+// UI components
+static lv_obj_t *lbl_today_temp;
+static lv_obj_t *lbl_today_feels_like;
+static lv_obj_t *img_today_icon;
+static lv_obj_t *lbl_forecast;
+static lv_obj_t *box_daily;
+static lv_obj_t *box_hourly;
+static lv_obj_t *lbl_daily_day[7];
+static lv_obj_t *lbl_daily_high[7];
+static lv_obj_t *lbl_daily_low[7];
+static lv_obj_t *img_daily[7];
+static lv_obj_t *lbl_hourly[7];
+static lv_obj_t *lbl_precipitation_probability[7];
+static lv_obj_t *lbl_hourly_temp[7];
+static lv_obj_t *img_hourly[7];
+static lv_obj_t *lbl_loc;
+static lv_obj_t *location_textArea;
+static lv_obj_t *results_dd;
+static lv_obj_t *btn_close_loc;
+static lv_obj_t *btn_close_obj;
+static lv_obj_t *keyboard_obj;
+static lv_obj_t *settings_win;
+static lv_obj_t *location_win = nullptr;
+static lv_obj_t *unit_switch;
+static lv_obj_t *clock_24hr_switch;
+static lv_obj_t *night_mode_switch;
+static lv_obj_t *language_dropdown;
+static lv_obj_t *lbl_clock;
+
+#define LATITUDE_DEFAULT "51.5074"
+#define LONGITUDE_DEFAULT "-0.1278"
+#define LOCATION_DEFAULT "London"
+#define UPDATE_INTERVAL 600000UL  // 10 minutes
+
+// Preferences
+static Preferences weather_app_prefs;
+static bool use_fahrenheit = false;
+static bool use_24_hour = false; 
+static bool use_night_mode = false;
+static char latitude[16] = LATITUDE_DEFAULT;
+static char longitude[16] = LONGITUDE_DEFAULT;
+static String location = String(LOCATION_DEFAULT);
+static char dropdown_options[512];
+
+// Screen dimming variables
+static bool night_mode_active = false;
+static bool temp_screen_wakeup_active = false;
+static lv_timer_t *temp_screen_wakeup_timer = nullptr;
+
+void create_weather_ui();
+static void screen_event_cb(lv_event_t *e);
+void create_settings_window();
+static void settings_event_handler(lv_event_t *e);
+
+int day_of_week(int y, int m, int d) {
+  static const int t[] = { 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
+  if (m < 3) y -= 1;
+  return (y + y / 4 - y / 100 + y / 400 + t[m - 1] + d) % 7;
+}
+
+String hour_of_day(int hour) {
+  const LocalizedStrings* strings = get_strings(current_language);
+  if(hour < 0 || hour > 23) return String(strings->invalid_hour);
+
+  if (use_24_hour) {
+    if (hour < 10)
+      return String("0") + String(hour);
+    else
+      return String(hour);
+  } else {
+    if(hour == 0)   return String("12") + strings->am;
+    if(hour == 12)  return String(strings->noon);
+
+    bool isMorning = (hour < 12);
+    String suffix = isMorning ? strings->am : strings->pm;
+
+    int displayHour = hour % 12;
+
+    return String(displayHour) + suffix;
+  }
+}
+
+// Screen dimming functions implementation
+bool night_mode_should_be_active() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) return false;
+
+  if (!use_night_mode) return false;
+  
+  int hour = timeinfo.tm_hour;
+  return (hour >= NIGHT_MODE_START_HOUR || hour < NIGHT_MODE_END_HOUR);
+}
+
+void activate_night_mode() {
+  analogWrite(LCD_BACKLIGHT_PIN, 0);
+  night_mode_active = true;
+}
+
+void deactivate_night_mode() {
+  analogWrite(LCD_BACKLIGHT_PIN, weather_app_prefs.getUInt("brightness", 128));
+  night_mode_active = false;
+}
+
+void check_for_night_mode() {
+  bool night_mode_time = night_mode_should_be_active();
+
+  if (night_mode_time && !night_mode_active && !temp_screen_wakeup_active) {
+    activate_night_mode();
+  } else if (!night_mode_time && night_mode_active) {
+    deactivate_night_mode();
+  }
+}
+
+void loadWeatherPrefs()
+{
+  // Load saved weather_app_prefs
+  weather_app_prefs.begin("weather", false);
+  String lat = weather_app_prefs.getString("latitude", LATITUDE_DEFAULT);
+  lat.toCharArray(latitude, sizeof(latitude));
+  String lon = weather_app_prefs.getString("longitude", LONGITUDE_DEFAULT);
+  lon.toCharArray(longitude, sizeof(longitude));
+  use_fahrenheit = weather_app_prefs.getBool("useFahrenheit", false);
+  location = weather_app_prefs.getString("location", LOCATION_DEFAULT);
+  use_night_mode = weather_app_prefs.getBool("useNightMode", false);
+  uint32_t brightness = weather_app_prefs.getUInt("brightness", 255);
+  use_24_hour = weather_app_prefs.getBool("use24Hour", false);
+  current_language = (Language)weather_app_prefs.getUInt("language", LANG_EN);
+  analogWrite(LCD_BACKLIGHT_PIN, brightness);
+}
+
+static void update_clock(lv_timer_t *timer) {
+  struct tm timeinfo;
+
+  check_for_night_mode();
+
+  if (!getLocalTime(&timeinfo)) return;
+
+  const LocalizedStrings* strings = get_strings(current_language);
+  char buf[16];
+  if (use_24_hour) {
+    snprintf(buf, sizeof(buf), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+  } else {
+    int hour = timeinfo.tm_hour % 12;
+    if(hour == 0) hour = 12;
+    const char *ampm = (timeinfo.tm_hour < 12) ? strings->am : strings->pm;
+    snprintf(buf, sizeof(buf), "%d:%02d%s", hour, timeinfo.tm_min, ampm);
+  }
+  lv_label_set_text(lbl_clock, buf);
+}
+
+void populate_results_dropdown(JsonArray* results) {
+  dropdown_options[0] = '\0';
+  for (JsonObject item : (*results)) {
+    strcat(dropdown_options, item["name"].as<const char *>());
+    if (item["admin1"]) {
+      strcat(dropdown_options, ", ");
+      strcat(dropdown_options, item["admin1"].as<const char *>());
+    }
+
+    strcat(dropdown_options, "\n");
+  }
+
+  if ((*results).size() > 0) {
+    lv_dropdown_set_options_static(results_dd, dropdown_options);
+    lv_obj_add_flag(results_dd, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(btn_close_loc, lv_palette_main(LV_PALETTE_GREEN), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(btn_close_loc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn_close_loc, lv_palette_darken(LV_PALETTE_GREEN, 1), LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_add_flag(btn_close_loc, LV_OBJ_FLAG_CLICKABLE);
+  }
+}
+
+static void kb_event_cb(lv_event_t *e) {
+  lv_obj_t *kb = static_cast<lv_obj_t *>(lv_event_get_target(e));
+  lv_obj_add_flag((lv_obj_t *)lv_event_get_target(e), LV_OBJ_FLAG_HIDDEN);
+
+  if (lv_event_get_code(e) == LV_EVENT_READY) {
+    const char *locationString = lv_textarea_get_text(location_textArea);
+    if (strlen(locationString) > 0) {
+      bool success = false;
+      do_geocode_query(locationString, &success);
+      if (success)
+        populate_results_dropdown(&geoResults);
+    }
+  }
+}
+
+void daily_callback(lv_event_t *e) {
+  const LocalizedStrings* strings = get_strings(current_language);
+  lv_obj_add_flag(box_daily, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(lbl_forecast, strings->hourly_forecast);
+  lv_obj_clear_flag(box_hourly, LV_OBJ_FLAG_HIDDEN);
+}
+
+void hourly_callback(lv_event_t *e) {
+  const LocalizedStrings* strings = get_strings(current_language);
+  lv_obj_add_flag(box_hourly, LV_OBJ_FLAG_HIDDEN);
+  lv_label_set_text(lbl_forecast, strings->seven_day_forecast);
+  lv_obj_clear_flag(box_daily, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void reset_confirm_no_cb(lv_event_t *e) {
+  lv_obj_t *mbox = (lv_obj_t *)lv_event_get_user_data(e);
+  lv_obj_del(mbox);
+}
+
+static void reset_confirm_yes_cb(lv_event_t *e) {
+  lv_obj_t *mbox = (lv_obj_t *)lv_event_get_user_data(e);
+  Serial.println("Clearing Wi-Fi creds and rebooting");
+  reset_wifi();
+  delay(100);
+  esp_restart();
+}
+
+static void reset_wifi_event_handler(lv_event_t *e) {
+  const LocalizedStrings* strings = get_strings(current_language);
+  lv_obj_t *mbox = lv_msgbox_create(lv_scr_act());
+  lv_obj_t *title = lv_msgbox_add_title(mbox, strings->reset);
+  lv_obj_set_style_margin_left(title, 10, 0);
+  lv_obj_set_style_text_font(title, get_font_16(), 0);
+
+  lv_obj_t *text = lv_msgbox_add_text(mbox, strings->reset_confirmation);
+  lv_obj_set_style_text_font(text, get_font_12(), 0);
+  lv_msgbox_add_close_button(mbox);
+
+  lv_obj_t *btn_no = lv_msgbox_add_footer_button(mbox, strings->cancel);
+  lv_obj_set_style_text_font(btn_no, get_font_12(), 0);
+  lv_obj_t *btn_yes = lv_msgbox_add_footer_button(mbox, strings->reset);
+  lv_obj_set_style_text_font(btn_yes, get_font_12(), 0);
+
+  lv_obj_set_style_bg_color(btn_yes, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(btn_yes, lv_palette_darken(LV_PALETTE_RED, 1), LV_PART_MAIN | LV_STATE_PRESSED);
+  lv_obj_set_style_text_color(btn_yes, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_set_width(mbox, 230);
+  lv_obj_center(mbox);
+
+  lv_obj_set_style_border_width(mbox, 2, LV_PART_MAIN);
+  lv_obj_set_style_border_color(mbox, lv_color_black(), LV_PART_MAIN);
+  lv_obj_set_style_border_opa(mbox, LV_OPA_COVER,   LV_PART_MAIN);
+  lv_obj_set_style_radius(mbox, 4, LV_PART_MAIN);
+
+  lv_obj_add_event_cb(btn_yes, reset_confirm_yes_cb, LV_EVENT_CLICKED, mbox);
+  lv_obj_add_event_cb(btn_no, reset_confirm_no_cb, LV_EVENT_CLICKED, mbox);
+}
+
+void fetch_and_update_weather() {
+  String url = get_forecast_url(latitude, longitude);
+  DynamicJsonDocument doc(32 * 1024);
+  if (fetch_weather(url, &doc))
+  {
+    float t_now = doc["current"]["temperature_2m"].as<float>();
+    float t_ap = doc["current"]["apparent_temperature"].as<float>();
+    int code_now = doc["current"]["weather_code"].as<int>();
+    int is_day = doc["current"]["is_day"].as<int>();
+
+    if (use_fahrenheit) {
+      t_now = t_now * 9.0 / 5.0 + 32.0;
+      t_ap = t_ap * 9.0 / 5.0 + 32.0;
+    }
+    const LocalizedStrings* strings = get_strings(current_language);
+
+    int utc_offset_seconds = doc["utc_offset_seconds"].as<int>();
+    configTime(utc_offset_seconds, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.print("Updating time from NTP with UTC offset: ");
+    Serial.println(utc_offset_seconds);
+    Serial.print("Weather Acquired. Current temperature: Currently ");
+    Serial.print((int)t_now);
+    Serial.print(" degrees");
+    Serial.println();
+
+    char unit = use_fahrenheit ? 'F' : 'C';
+    lv_label_set_text_fmt(lbl_today_temp, "%.0f°%c", t_now, unit);
+    lv_label_set_text_fmt(lbl_today_feels_like, "%s %.0f°%c", strings->feels_like_temp, t_ap, unit);
+    lv_img_set_src(img_today_icon, choose_image(code_now, is_day));
+
+    JsonArray times = doc["daily"]["time"].as<JsonArray>();
+    JsonArray tmin = doc["daily"]["temperature_2m_min"].as<JsonArray>();
+    JsonArray tmax = doc["daily"]["temperature_2m_max"].as<JsonArray>();
+    JsonArray weather_codes = doc["daily"]["weather_code"].as<JsonArray>();
+
+    for (int i = 0; i < 7; i++) {
+      const char *date = times[i];
+      int year = atoi(date + 0);
+      int mon = atoi(date + 5);
+      int dayd = atoi(date + 8);
+      int dow = day_of_week(year, mon, dayd);
+      const char *dayStr = (i == 0 && current_language != LANG_FR) ? strings->today : strings->weekdays[dow];
+
+      float mn = tmin[i].as<float>();
+      float mx = tmax[i].as<float>();
+      if (use_fahrenheit) {
+        mn = mn * 9.0 / 5.0 + 32.0;
+        mx = mx * 9.0 / 5.0 + 32.0;
+      }
+
+      lv_label_set_text_fmt(lbl_daily_day[i], "%s", dayStr);
+      lv_label_set_text_fmt(lbl_daily_high[i], "%.0f°%c", mx, unit);
+      lv_label_set_text_fmt(lbl_daily_low[i], "%.0f°%c", mn, unit);
+      lv_img_set_src(img_daily[i], choose_icon(weather_codes[i].as<int>(), (i == 0) ? is_day : 1));
+    }
+
+    JsonArray hours = doc["hourly"]["time"].as<JsonArray>();
+    JsonArray hourly_temps = doc["hourly"]["temperature_2m"].as<JsonArray>();
+    JsonArray precipitation_probabilities = doc["hourly"]["precipitation_probability"].as<JsonArray>();
+    JsonArray hourly_weather_codes = doc["hourly"]["weather_code"].as<JsonArray>();
+    JsonArray hourly_is_day = doc["hourly"]["is_day"].as<JsonArray>();
+
+    for (int i = 0; i < 7; i++) {
+      const char *date = hours[i];  // "YYYY-MM-DD"
+      int hour = atoi(date + 11);
+      int minute = atoi(date + 14);
+      String hour_name = hour_of_day(hour);
+
+      float precipitation_probability = precipitation_probabilities[i].as<float>();
+      float temp = hourly_temps[i].as<float>();
+      if (use_fahrenheit) {
+        temp = temp * 9.0 / 5.0 + 32.0;
+      }
+
+      if (i == 0 && current_language != LANG_FR) {
+        lv_label_set_text(lbl_hourly[i], strings->now);
+      } else {
+        lv_label_set_text(lbl_hourly[i], hour_name.c_str());
+      }
+      lv_label_set_text_fmt(lbl_precipitation_probability[i], "%.0f%%", precipitation_probability);
+      lv_label_set_text_fmt(lbl_hourly_temp[i], "%.0f°%c", temp, unit);
+      lv_img_set_src(img_hourly[i], choose_icon(hourly_weather_codes[i].as<int>(), hourly_is_day[i].as<int>()));
+    }
+  }
+}
+
+void handle_temp_screen_wakeup_timeout(lv_timer_t *timer) {
+  if (temp_screen_wakeup_active) {
+    temp_screen_wakeup_active = false;
+
+    if (night_mode_should_be_active()) {
+      activate_night_mode();
+    }
+  }
+  
+  if (temp_screen_wakeup_timer) {
+    lv_timer_del(temp_screen_wakeup_timer);
+    temp_screen_wakeup_timer = nullptr;
+  }
+}
+
+static void location_save_event_cb(lv_event_t *e) {
+  JsonArray *pres = static_cast<JsonArray *>(lv_event_get_user_data(e));
+  uint16_t idx = lv_dropdown_get_selected(results_dd);
+
+  JsonObject obj = (*pres)[idx];
+  double lat = obj["latitude"].as<double>();
+  double lon = obj["longitude"].as<double>();
+
+  snprintf(latitude, sizeof(latitude), "%.6f", lat);
+  snprintf(longitude, sizeof(longitude), "%.6f", lon);
+  weather_app_prefs.putString("latitude", latitude);
+  weather_app_prefs.putString("longitude", longitude);
+
+  String opts;
+  const char *name = obj["name"];
+  const char *admin = obj["admin1"];
+  const char *country = obj["country_code"];
+  opts += name;
+  if (admin) {
+    opts += ", ";
+    opts += admin;
+  }
+
+  weather_app_prefs.putString("location", opts);
+  location = weather_app_prefs.getString("location");
+
+  // Re‐fetch weather immediately
+  lv_label_set_text(lbl_loc, opts.c_str());
+  fetch_and_update_weather();
+
+  lv_obj_del(location_win);
+  location_win = nullptr;
+}
+
+static void textarea_event_callback(lv_event_t *e) {
+  lv_obj_t *textArea = (lv_obj_t *)lv_event_get_target(e);
+  lv_obj_t *keyboard = (lv_obj_t *)lv_event_get_user_data(e);
+
+  // Show keyboard
+  lv_keyboard_set_textarea(keyboard, textArea);
+  lv_obj_move_foreground(keyboard);
+  lv_obj_clear_flag(keyboard, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void location_cancel_event_cb(lv_event_t *e) {
+  lv_obj_del(location_win);
+  location_win = nullptr;
+}
+
+void create_location_dialog() {
+  const LocalizedStrings* strings = get_strings(current_language);
+  location_win = lv_win_create(lv_scr_act());
+  lv_obj_t *title = lv_win_add_title(location_win, strings->change_location);
+  lv_obj_t *header = lv_win_get_header(location_win);
+  lv_obj_set_style_height(header, 30, 0);
+  lv_obj_set_style_text_font(title, get_font_16(), 0);
+  lv_obj_set_style_margin_left(title, 10, 0);
+  lv_obj_set_size(location_win, 240, 320);
+  lv_obj_center(location_win);
+
+  lv_obj_t *cont = lv_win_get_content(location_win);
+
+  lv_obj_t *lbl = lv_label_create(cont);
+  lv_label_set_text(lbl, strings->city);
+  lv_obj_set_style_text_font(lbl, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 5, 10);
+
+  location_textArea = lv_textarea_create(cont);
+  lv_textarea_set_one_line(location_textArea, true);
+  lv_textarea_set_placeholder_text(location_textArea, strings->city_placeholder);
+  lv_obj_set_width(location_textArea, 170);
+  lv_obj_align_to(location_textArea, lbl, LV_ALIGN_OUT_RIGHT_MID, 5, 0);
+
+  lv_obj_add_event_cb(location_textArea, textarea_event_callback, LV_EVENT_CLICKED, keyboard_obj);
+  lv_obj_add_event_cb(location_textArea, textarea_defocus_callbback, LV_EVENT_DEFOCUSED, keyboard_obj);
+
+  lv_obj_t *lbl2 = lv_label_create(cont);
+  lv_label_set_text(lbl2, strings->search_results);
+  lv_obj_set_style_text_font(lbl2, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align(lbl2, LV_ALIGN_TOP_LEFT, 5, 50);
+
+  results_dd = lv_dropdown_create(cont);
+  lv_obj_set_width(results_dd, 200);
+  lv_obj_align(results_dd, LV_ALIGN_TOP_LEFT, 5, 70);
+  lv_obj_set_style_text_font(results_dd, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(results_dd, get_font_14(), LV_PART_SELECTED | LV_STATE_DEFAULT);
+
+  lv_obj_t *list = lv_dropdown_get_list(results_dd);
+  lv_obj_set_style_text_font(list, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_dropdown_set_options(results_dd, "");
+  lv_obj_clear_flag(results_dd, LV_OBJ_FLAG_CLICKABLE);
+
+  btn_close_loc = lv_btn_create(cont);
+  lv_obj_set_size(btn_close_loc, 80, 40);
+  lv_obj_align(btn_close_loc, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+
+  lv_obj_add_event_cb(btn_close_loc, location_save_event_cb, LV_EVENT_CLICKED, &geoResults);
+  lv_obj_set_style_bg_color(btn_close_loc, lv_palette_main(LV_PALETTE_GREY), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(btn_close_loc, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(btn_close_loc, lv_palette_darken(LV_PALETTE_GREY, 1), LV_PART_MAIN | LV_STATE_PRESSED);
+  lv_obj_clear_flag(btn_close_loc, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t *lbl_close = lv_label_create(btn_close_loc);
+  lv_label_set_text(lbl_close, strings->save);
+  lv_obj_set_style_text_font(lbl_close, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_center(lbl_close);
+
+  lv_obj_t *btn_cancel_loc = lv_btn_create(cont);
+  lv_obj_set_size(btn_cancel_loc, 80, 40);
+  lv_obj_align_to(btn_cancel_loc, btn_close_loc, LV_ALIGN_OUT_LEFT_MID, -5, 0);
+  lv_obj_add_event_cb(btn_cancel_loc, location_cancel_event_cb, LV_EVENT_CLICKED, &geoResults);
+
+  lv_obj_t *lbl_cancel = lv_label_create(btn_cancel_loc);
+  lv_label_set_text(lbl_cancel, strings->cancel);
+  lv_obj_set_style_text_font(lbl_cancel, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_center(lbl_cancel);
+}
+
+static void change_location_event_cb(lv_event_t *e) {
+  if (location_win) return;
+
+  create_location_dialog();
+}
+
+void create_weather_ui() {
+  lv_obj_t *screen = lv_scr_act();
+  lv_obj_set_style_bg_color(screen, lv_color_hex(0x4c8cb9), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_grad_color(screen, lv_color_hex(0xa6cdec), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_VER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  // Trigger settings screen on touch
+  lv_obj_add_event_cb(screen, screen_event_cb, LV_EVENT_CLICKED, NULL);
+
+  img_today_icon = lv_img_create(screen);
+  lv_img_set_src(img_today_icon, &image_partly_cloudy);
+  lv_obj_align(img_today_icon, LV_ALIGN_TOP_MID, -64, 4);
+
+  static lv_style_t default_label_style;
+  lv_style_init(&default_label_style);
+  lv_style_set_text_color(&default_label_style, lv_color_hex(0xFFFFFF));
+  lv_style_set_text_opa(&default_label_style, LV_OPA_COVER);
+
+  const LocalizedStrings* strings = get_strings(current_language);
+
+  lbl_today_temp = lv_label_create(screen);
+  lv_label_set_text(lbl_today_temp, strings->temp_placeholder);
+  lv_obj_set_style_text_font(lbl_today_temp, get_font_42(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align(lbl_today_temp, LV_ALIGN_TOP_MID, 45, 25);
+  lv_obj_add_style(lbl_today_temp, &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lbl_today_feels_like = lv_label_create(screen);
+  lv_label_set_text(lbl_today_feels_like, strings->feels_like_temp);
+  lv_obj_set_style_text_font(lbl_today_feels_like, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(lbl_today_feels_like, lv_color_hex(0xe4ffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align(lbl_today_feels_like, LV_ALIGN_TOP_MID, 45, 75);
+
+  lbl_forecast = lv_label_create(screen);
+  lv_label_set_text(lbl_forecast, strings->seven_day_forecast);
+  lv_obj_set_style_text_font(lbl_forecast, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(lbl_forecast, lv_color_hex(0xe4ffff), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align(lbl_forecast, LV_ALIGN_TOP_LEFT, 20, 110);
+
+  box_daily = lv_obj_create(screen);
+  lv_obj_set_size(box_daily, 220, 180);
+  lv_obj_align(box_daily, LV_ALIGN_TOP_LEFT, 10, 135);
+  lv_obj_set_style_bg_color(box_daily, lv_color_hex(0x5e9bc8), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(box_daily, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(box_daily, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(box_daily, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_clear_flag(box_daily, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(box_daily, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_style_pad_all(box_daily, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_gap(box_daily, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(box_daily, daily_callback, LV_EVENT_CLICKED, NULL);
+
+  for (int i = 0; i < 7; i++) {
+    lbl_daily_day[i] = lv_label_create(box_daily);
+    lbl_daily_high[i] = lv_label_create(box_daily);
+    lbl_daily_low[i] = lv_label_create(box_daily);
+    img_daily[i] = lv_img_create(box_daily);
+
+    lv_obj_add_style(lbl_daily_day[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl_daily_day[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(lbl_daily_day[i], LV_ALIGN_TOP_LEFT, 2, i * 24);
+
+    lv_obj_add_style(lbl_daily_high[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl_daily_high[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(lbl_daily_high[i], LV_ALIGN_TOP_RIGHT, 0, i * 24);
+
+    lv_label_set_text(lbl_daily_low[i], "");
+    lv_obj_set_style_text_color(lbl_daily_low[i], lv_color_hex(0xb9ecff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl_daily_low[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(lbl_daily_low[i], LV_ALIGN_TOP_RIGHT, -50, i * 24);
+
+    lv_img_set_src(img_daily[i], &icon_partly_cloudy);
+    lv_obj_align(img_daily[i], LV_ALIGN_TOP_LEFT, 72, i * 24);
+  }
+
+  box_hourly = lv_obj_create(screen);
+  lv_obj_set_size(box_hourly, 220, 180);
+  lv_obj_align(box_hourly, LV_ALIGN_TOP_LEFT, 10, 135);
+  lv_obj_set_style_bg_color(box_hourly, lv_color_hex(0x5e9bc8), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(box_hourly, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_radius(box_hourly, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(box_hourly, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_clear_flag(box_hourly, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollbar_mode(box_hourly, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_set_style_pad_all(box_hourly, 10, LV_PART_MAIN);
+  lv_obj_set_style_pad_gap(box_hourly, 0, LV_PART_MAIN);
+  lv_obj_add_event_cb(box_hourly, hourly_callback, LV_EVENT_CLICKED, NULL);
+
+  for (int i = 0; i < 7; i++) {
+    lbl_hourly[i] = lv_label_create(box_hourly);
+    lbl_precipitation_probability[i] = lv_label_create(box_hourly);
+    lbl_hourly_temp[i] = lv_label_create(box_hourly);
+    img_hourly[i] = lv_img_create(box_hourly);
+
+    lv_obj_add_style(lbl_hourly[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl_hourly[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(lbl_hourly[i], LV_ALIGN_TOP_LEFT, 2, i * 24);
+
+    lv_obj_add_style(lbl_hourly_temp[i], &default_label_style, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl_hourly_temp[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(lbl_hourly_temp[i], LV_ALIGN_TOP_RIGHT, 0, i * 24);
+
+    lv_label_set_text(lbl_precipitation_probability[i], "");
+    lv_obj_set_style_text_color(lbl_precipitation_probability[i], lv_color_hex(0xb9ecff), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(lbl_precipitation_probability[i], get_font_16(), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_align(lbl_precipitation_probability[i], LV_ALIGN_TOP_RIGHT, -55, i * 24);
+
+    lv_img_set_src(img_hourly[i], &icon_partly_cloudy);
+    lv_obj_align(img_hourly[i], LV_ALIGN_TOP_LEFT, 72, i * 24);
+  }
+
+  lv_obj_add_flag(box_hourly, LV_OBJ_FLAG_HIDDEN);
+
+  // Create clock label in the top-right corner
+  lbl_clock = lv_label_create(screen);
+  lv_obj_set_style_text_font(lbl_clock, get_font_14(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_color(lbl_clock, lv_color_hex(0xb9ecff), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_label_set_text(lbl_clock, "");
+  lv_obj_align(lbl_clock, LV_ALIGN_TOP_RIGHT, -10, 2);
+}
+
+void screen_event_cb(lv_event_t *e) {
+  create_settings_window();
+}
+
+void create_settings_window() {
+  if (settings_win) return;
+
+  int vertical_element_spacing = 21;
+
+  const LocalizedStrings* strings = get_strings(current_language);
+  settings_win = lv_win_create(lv_scr_act());
+
+  lv_obj_t *header = lv_win_get_header(settings_win);
+  lv_obj_set_style_height(header, 30, 0);
+
+  lv_obj_t *title = lv_win_add_title(settings_win, strings->aura_settings);
+  lv_obj_set_style_text_font(title, get_font_16(), 0);
+  lv_obj_set_style_margin_left(title, 10, 0);
+
+  lv_obj_center(settings_win);
+  lv_obj_set_width(settings_win, 240);
+
+  lv_obj_t *cont = lv_win_get_content(settings_win);
+
+  // Brightness
+  lv_obj_t *lbl_b = lv_label_create(cont);
+  lv_label_set_text(lbl_b, strings->brightness);
+  lv_obj_set_style_text_font(lbl_b, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align(lbl_b, LV_ALIGN_TOP_LEFT, 0, 5);
+  lv_obj_t *slider = lv_slider_create(cont);
+  lv_slider_set_range(slider, 1, 255);
+  uint32_t saved_b = weather_app_prefs.getUInt("brightness", 128);
+  lv_slider_set_value(slider, saved_b, LV_ANIM_OFF);
+  lv_obj_set_width(slider, 100);
+  lv_obj_align_to(slider, lbl_b, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+
+  lv_obj_add_event_cb(slider, [](lv_event_t *e){
+    lv_obj_t *s = (lv_obj_t*)lv_event_get_target(e);
+    uint32_t v = lv_slider_get_value(s);
+    analogWrite(LCD_BACKLIGHT_PIN, v);
+    weather_app_prefs.putUInt("brightness", v);
+  }, LV_EVENT_VALUE_CHANGED, NULL);
+
+  // 'Night mode' switch
+  lv_obj_t *lbl_night_mode = lv_label_create(cont);
+  lv_label_set_text(lbl_night_mode, strings->use_night_mode_str);
+  lv_obj_set_style_text_font(lbl_night_mode, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_night_mode, lbl_b, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+
+  night_mode_switch = lv_switch_create(cont);
+  lv_obj_align_to(night_mode_switch, lbl_night_mode, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  if (use_night_mode) {
+    lv_obj_add_state(night_mode_switch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_remove_state(night_mode_switch, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(night_mode_switch, settings_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
+
+  // 'Use F' switch
+  lv_obj_t *lbl_u = lv_label_create(cont);
+  lv_label_set_text(lbl_u, strings->use_fahrenheit);
+  lv_obj_set_style_text_font(lbl_u, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_u, lbl_night_mode, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+
+  unit_switch = lv_switch_create(cont);
+  lv_obj_align_to(unit_switch, lbl_u, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  if (use_fahrenheit) {
+    lv_obj_add_state(unit_switch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_remove_state(unit_switch, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(unit_switch, settings_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
+
+  // 24-hr time switch
+  lv_obj_t *lbl_24hr = lv_label_create(cont);
+  lv_label_set_text(lbl_24hr, strings->use_24hr);
+  lv_obj_set_style_text_font(lbl_24hr, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_24hr, unit_switch, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+
+  clock_24hr_switch = lv_switch_create(cont);
+  lv_obj_align_to(clock_24hr_switch, lbl_24hr, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
+  if (use_24_hour) {
+    lv_obj_add_state(clock_24hr_switch, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(clock_24hr_switch, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(clock_24hr_switch, settings_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
+
+  // Current Location label
+  lv_obj_t *lbl_loc_l = lv_label_create(cont);
+  lv_label_set_text(lbl_loc_l, strings->location);
+  lv_obj_set_style_text_font(lbl_loc_l, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_loc_l, lbl_u, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+
+  lbl_loc = lv_label_create(cont);
+  lv_label_set_text(lbl_loc, location.c_str());
+  lv_obj_set_style_text_font(lbl_loc, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_loc, lbl_loc_l, LV_ALIGN_OUT_RIGHT_MID, 5, 0);
+
+  // Language selection
+  lv_obj_t *lbl_lang = lv_label_create(cont);
+  lv_label_set_text(lbl_lang, strings->language_label);
+  lv_obj_set_style_text_font(lbl_lang, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(lbl_lang, lbl_loc_l, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+
+  language_dropdown = lv_dropdown_create(cont);
+  lv_dropdown_set_options(language_dropdown, "English\nEspañol\nDeutsch\nFrançais\nTürkçe\nSvenska\nItaliano");
+  lv_dropdown_set_selected(language_dropdown, current_language);
+  lv_obj_set_width(language_dropdown, 120);
+  lv_obj_set_style_text_font(language_dropdown, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(language_dropdown, get_font_12(), LV_PART_SELECTED | LV_STATE_DEFAULT);
+  lv_obj_t *list = lv_dropdown_get_list(language_dropdown);
+  lv_obj_set_style_text_font(list, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_align_to(language_dropdown, lbl_lang, LV_ALIGN_OUT_RIGHT_MID, 10, 0);
+  lv_obj_add_event_cb(language_dropdown, settings_event_handler, LV_EVENT_VALUE_CHANGED, NULL);
+
+  // Location search button
+  lv_obj_t *btn_change_loc = lv_btn_create(cont);
+  lv_obj_align_to(btn_change_loc, lbl_lang, LV_ALIGN_OUT_BOTTOM_LEFT, 0, vertical_element_spacing);
+
+  lv_obj_set_size(btn_change_loc, 100, 40);
+  lv_obj_add_event_cb(btn_change_loc, change_location_event_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_chg = lv_label_create(btn_change_loc);
+  lv_label_set_text(lbl_chg, strings->location_btn);
+  lv_obj_set_style_text_font(lbl_chg, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_center(lbl_chg);
+
+  // Hidden keyboard object
+  if (!keyboard_obj) {
+    keyboard_obj = lv_keyboard_create(lv_scr_act());
+    lv_keyboard_set_mode(keyboard_obj, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_obj_add_flag(keyboard_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(keyboard_obj, kb_event_cb, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(keyboard_obj, kb_event_cb, LV_EVENT_CANCEL, NULL);
+  }
+
+  // Reset WiFi button
+  lv_obj_t *btn_reset = lv_btn_create(cont);
+  lv_obj_set_style_bg_color(btn_reset, lv_palette_main(LV_PALETTE_RED), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(btn_reset, lv_palette_darken(LV_PALETTE_RED, 1), LV_PART_MAIN | LV_STATE_PRESSED);
+  lv_obj_set_style_text_color(btn_reset, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_size(btn_reset, 100, 40);
+  lv_obj_align_to(btn_reset, btn_change_loc, LV_ALIGN_OUT_RIGHT_MID, 12, 0);
+
+  lv_obj_add_event_cb(btn_reset, reset_wifi_event_handler, LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t *lbl_reset = lv_label_create(btn_reset);
+  lv_label_set_text(lbl_reset, strings->reset_wifi);
+  lv_obj_set_style_text_font(lbl_reset, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_center(lbl_reset);
+
+  // Close Settings button
+  btn_close_obj = lv_btn_create(cont);
+  lv_obj_set_size(btn_close_obj, 80, 40);
+  lv_obj_align(btn_close_obj, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+  lv_obj_add_event_cb(btn_close_obj, settings_event_handler, LV_EVENT_CLICKED, NULL);
+
+  // Cancel button
+  lv_obj_t *lbl_btn = lv_label_create(btn_close_obj);
+  lv_label_set_text(lbl_btn, strings->close);
+  lv_obj_set_style_text_font(lbl_btn, get_font_12(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_center(lbl_btn);
+}
+
+static void settings_event_handler(lv_event_t *e) {
+  lv_event_code_t code = lv_event_get_code(e);
+  lv_obj_t *eventTarget = (lv_obj_t *)lv_event_get_target(e);
+
+  if (eventTarget == unit_switch && code == LV_EVENT_VALUE_CHANGED) {
+    use_fahrenheit = lv_obj_has_state(unit_switch, LV_STATE_CHECKED);
+  }
+
+  if (eventTarget == clock_24hr_switch && code == LV_EVENT_VALUE_CHANGED) {
+    use_24_hour = lv_obj_has_state(clock_24hr_switch, LV_STATE_CHECKED);
+  }
+
+  if (eventTarget == night_mode_switch && code == LV_EVENT_VALUE_CHANGED) {
+    use_night_mode = lv_obj_has_state(night_mode_switch, LV_STATE_CHECKED);
+  }
+
+  if (eventTarget == language_dropdown && code == LV_EVENT_VALUE_CHANGED) {
+    current_language = (Language)lv_dropdown_get_selected(language_dropdown);
+    // Update the UI immediately to reflect language change
+    lv_obj_del(settings_win);
+    settings_win = nullptr;
+    
+    // Save preferences and recreate UI with new language
+    weather_app_prefs.putBool("useFahrenheit", use_fahrenheit);
+    weather_app_prefs.putBool("use24Hour", use_24_hour);
+    weather_app_prefs.putBool("useNightMode", use_night_mode);
+    weather_app_prefs.putUInt("language", current_language);
+
+    lv_keyboard_set_textarea(keyboard_obj, nullptr);
+    lv_obj_add_flag(keyboard_obj, LV_OBJ_FLAG_HIDDEN);
+    
+    // Recreate the main UI with the new language
+    lv_obj_clean(lv_scr_act());
+    create_weather_ui();
+    fetch_and_update_weather();
+    return;
+  }
+
+  if (eventTarget == btn_close_obj && code == LV_EVENT_CLICKED) {
+    weather_app_prefs.putBool("useFahrenheit", use_fahrenheit);
+    weather_app_prefs.putBool("use24Hour", use_24_hour);
+    weather_app_prefs.putBool("useNightMode", use_night_mode);
+    weather_app_prefs.putUInt("language", current_language);
+
+    lv_keyboard_set_textarea(keyboard_obj, nullptr);
+    lv_obj_add_flag(keyboard_obj, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_del(settings_win);
+    settings_win = nullptr;
+
+    fetch_and_update_weather();
+  }
+}
+
+#endif // WEATHER_APP_UI_H

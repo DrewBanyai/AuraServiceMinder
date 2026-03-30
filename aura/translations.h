@@ -34,10 +34,12 @@ struct LocalizedStrings {
   const char* reset_confirmation;
   const char* language_label;
   const char* weekdays[7];
-  const char* use_night_mode;
+  const char* use_night_mode_str;
 };
 
 #define DEFAULT_CAPTIVE_SSID "Aura"
+
+static Language current_language = LANG_EN;
 
 static const LocalizedStrings strings_en = {
   "--°C", "Feels Like", "SEVEN DAY FORECAST", "HOURLY FORECAST",
