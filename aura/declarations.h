@@ -86,6 +86,11 @@ LV_IMG_DECLARE(image_sunny);
 LV_IMG_DECLARE(image_tornado);
 LV_IMG_DECLARE(image_wintry_mix_rain_snow);
 
+//  Service Monitor Icons
+LV_IMG_DECLARE(icon_healthy_service_marker);
+LV_IMG_DECLARE(icon_midhealthy_service_marker);
+LV_IMG_DECLARE(icon_unhealthy_service_marker);
+
 
 
 const lv_img_dsc_t* choose_image(int code, int is_day) {

@@ -1421,3 +1421,219 @@ const lv_image_dsc_t icon_wintry_mix_rain_snow = {
   .data = icon_wintry_mix_rain_snow_map,
   .reserved = NULL,
 };
+
+#ifndef LV_ATTRIBUTE_ICON_HEALTHY_SERVICE_MARKER
+#define LV_ATTRIBUTE_ICON_HEALTHY_SERVICE_MARKER
+#endif
+
+static const
+LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_ICON_HEALTHY_SERVICE_MARKER
+
+const uint8_t green_dot_map[1200] = {
+  /* --- RGB565 (800 bytes) --- */
+  #define G 0xE0, 0x07
+
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+  G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,G,
+
+  #undef G
+
+  /* --- Alpha (400 bytes) --- */
+  #define A 0xFF
+  0,0,0,0,0,0,0,A,A,A,A,A,A,0,0,0,0,0,0,0,
+  0,0,0,0,0,A,A,A,A,A,A,A,A,A,A,0,0,0,0,0,
+  0,0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,0,
+  0,0,0,0,0,A,A,A,A,A,A,A,A,A,A,0,0,0,0,0,
+  0,0,0,0,0,0,0,A,A,A,A,A,A,0,0,0,0,0,0,0
+  #undef A
+};
+
+const lv_image_dsc_t icon_healthy_service_marker = {
+  .header.magic = LV_IMAGE_HEADER_MAGIC,
+  .header.cf = LV_COLOR_FORMAT_RGB565A8,
+  .header.flags = 0,
+  .header.w = 20,
+  .header.h = 20,
+  .header.stride = 40,
+  .header.reserved_2 = 0,
+  .data_size = sizeof(green_dot_map),
+  .data = green_dot_map,
+  .reserved = NULL,
+};
+
+#ifndef LV_ATTRIBUTE_ICON_MIDHEALTHY_SERVICE_MARKER
+#define LV_ATTRIBUTE_ICON_MIDHEALTHY_SERVICE_MARKER
+#endif
+
+static const
+LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_ICON_MIDHEALTHY_SERVICE_MARKER
+
+const uint8_t yellow_dot_map[1200] = {
+  /* --- RGB565 (800 bytes) --- */
+  #define Y 0xE0, 0xFF
+
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+  Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+
+  #undef Y
+
+  /* --- Alpha (400 bytes) --- */
+  #define A 0xFF
+  0,0,0,0,0,0,0,A,A,A,A,A,A,0,0,0,0,0,0,0,
+  0,0,0,0,0,A,A,A,A,A,A,A,A,A,A,0,0,0,0,0,
+  0,0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,0,
+  0,0,0,0,0,A,A,A,A,A,A,A,A,A,A,0,0,0,0,0,
+  0,0,0,0,0,0,0,A,A,A,A,A,A,0,0,0,0,0,0,0
+  #undef A
+};
+
+const lv_image_dsc_t icon_midhealthy_service_marker = {
+  .header.magic = LV_IMAGE_HEADER_MAGIC,
+  .header.cf = LV_COLOR_FORMAT_RGB565A8,
+  .header.flags = 0,
+  .header.w = 20,
+  .header.h = 20,
+  .header.stride = 40,
+  .header.reserved_2 = 0,
+  .data_size = sizeof(yellow_dot_map),
+  .data = yellow_dot_map,
+  .reserved = NULL,
+};
+
+#ifndef LV_ATTRIBUTE_ICON_UNHEALTHY_SERVICE_MARKER
+#define LV_ATTRIBUTE_ICON_UNHEALTHY_SERVICE_MARKER
+#endif
+
+static const
+LV_ATTRIBUTE_MEM_ALIGN LV_ATTRIBUTE_LARGE_CONST LV_ATTRIBUTE_ICON_UNHEALTHY_SERVICE_MARKER
+
+const uint8_t red_dot_map[1200] = {
+  /* --- RGB565 (800 bytes) --- */
+  #define R 0x00, 0xF8
+
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+  R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,R,
+
+  #undef R
+
+  /* --- Alpha (400 bytes) --- */
+  #define A 0xFF
+  0,0,0,0,0,0,0,A,A,A,A,A,A,0,0,0,0,0,0,0,
+  0,0,0,0,0,A,A,A,A,A,A,A,A,A,A,0,0,0,0,0,
+  0,0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,
+  0,0,0,A,A,A,A,A,A,A,A,A,A,A,A,A,A,0,0,0,
+  0,0,0,0,0,A,A,A,A,A,A,A,A,A,A,0,0,0,0,0,
+  0,0,0,0,0,0,0,A,A,A,A,A,A,0,0,0,0,0,0,0
+  #undef A
+};
+
+const lv_image_dsc_t icon_unhealthy_service_marker = {
+  .header.magic = LV_IMAGE_HEADER_MAGIC,
+  .header.cf = LV_COLOR_FORMAT_RGB565A8,
+  .header.flags = 0,
+  .header.w = 20,
+  .header.h = 20,
+  .header.stride = 40,
+  .header.reserved_2 = 0,
+  .data_size = sizeof(red_dot_map),
+  .data = red_dot_map,
+  .reserved = NULL,
+};

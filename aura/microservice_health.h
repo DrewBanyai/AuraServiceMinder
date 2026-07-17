@@ -6,9 +6,9 @@
 #include <vector>
 
 struct ServiceHealthEndpoint {
-  const char* service;
-  const char* label;
-  const char* url;
+  const char* serviceName;
+  const char* stagingURL;
+  const char* prodURL;
 };
 
 struct HealthComponent {

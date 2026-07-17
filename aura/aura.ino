@@ -9,27 +9,19 @@
 #include "screen_control.h"
 #include "web.h"
 #include "microservice_health.h"
+#include "service_monitor_ui.h"
 #include "weather_app_ui.h"
 
 void fetch_api_health_checks();
 
-static const ServiceHealthEndpoint HEALTH_ENDPOINTS[] = {
-  { "Anti-Cheat", "Staging",    "https://api-staging.battlecreek.games/api/v1/bcg-anti-cheat-validation-service/health/detailed" },
-  { "Anti-Cheat", "Production", "https://api.battlecreek.games/api/v1/bcg-anti-cheat-validation-service/health/detailed"         },
-  { "Identity",   "Staging",    "https://api-staging.battlecreek.games/api/v1/identity/health/detailed"                          },
-  { "Identity",   "Production", "https://api.battlecreek.games/api/v1/identity/health/detailed"                                  },
-  { "Wallet",     "Staging",    "https://api-staging.battlecreek.games/api/v1/wallet/health/detailed"                            },
-  { "Wallet",     "Production", "https://api.battlecreek.games/api/v1/wallet/health/detailed"                                    },
+static const ServiceHealthEndpoint HEALTH_ENDPOINTS[SERVICE_TRACKING_COUNT] = {
+  { "Anti-Cheat", "https://api-staging.battlecreek.games/api/v1/bcg-anti-cheat-validation-service/health/detailed", "https://api.battlecreek.games/api/v1/bcg-anti-cheat-validation-service/health/detailed"         },
+  { "Identity",   "https://api-staging.battlecreek.games/api/v1/identity/health/detailed", "https://api.battlecreek.games/api/v1/identity/health/detailed"                                  },
+  { "Wallet",     "https://api-staging.battlecreek.games/api/v1/wallet/health/detailed", "https://api.battlecreek.games/api/v1/wallet/health/detailed"                                    },
 };
 
-static void touchscreen_read(lv_indev_t *indev, lv_indev_data_t *data) {
-  if (touchscreen.tirqTouched() && touchscreen.touched()) {
-    TS_Point p = touchscreen.getPoint();
-
-    x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-    y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
-    z = p.z;
-
+static void screen_touch_wake_callback(lv_indev_data_t *data)
+{
     // Handle touch during dimmed screen
     if (night_mode_active) {
       // Temporarily wake the screen for 15 seconds
@@ -51,20 +43,6 @@ static void touchscreen_read(lv_indev_t *indev, lv_indev_data_t *data) {
 
       temp_screen_wakeup_active = true;
     }
-
-    data->state = LV_INDEV_STATE_PRESSED;
-    data->point.x = x;
-    data->point.y = y;
-  } else {
-    data->state = LV_INDEV_STATE_RELEASED;
-  }
-}
-
-static void initInputDevice()
-{
-  lv_indev_t *inputDevice = lv_indev_create();
-  lv_indev_set_type(inputDevice, LV_INDEV_TYPE_POINTER);
-  lv_indev_set_read_cb(inputDevice, touchscreen_read);
 }
 
 void setup() {
@@ -78,6 +56,7 @@ void setup() {
 
   initTouchscreen();
   initInputDevice();
+  addMouseClickCallback(screen_touch_wake_callback);
 
   loadWeatherPrefs();
 
@@ -89,15 +68,11 @@ void setup() {
   lv_timer_create(update_clock, 1000, NULL);
 
   lv_obj_clean(lv_scr_act());
-  create_weather_ui();
+  ServiceMonitorUI::CreateUI();
+  //create_weather_ui();
   Serial.println("Screen Initialized");
-  fetch_and_update_weather();
+  //fetch_and_update_weather();
   fetch_api_health_checks();
-}
-
-void apModeCallback(WiFiManager *mgr) {
-  wifi_splash_screen();
-  flush_wifi_splashscreen();
 }
 
 void loop() {
@@ -113,22 +88,20 @@ void loop() {
   delay(5);
 }
 
-static void print_service_health(const char* service, const char* label, const char* url) {
+static int get_service_health(const char* serviceName, const char* serviceURL) {
   HTTPClient http;
-  http.begin(url);
+  http.begin(serviceURL);
   int code = http.GET();
+  int healthValue = 2;
 
-  Serial.print(service);
-  Serial.print(" ");
-  Serial.println(label);
+  Serial.print(serviceName);
 
   if (code > 0) {
     String payload = http.getString();
     DynamicJsonDocument doc(4096);
     MicroserviceHealthResponse health;
 
-    if (deserializeJson(doc, payload) == DeserializationError::Ok
-        && MicroserviceHealthResponse::fromJson(doc, health)) {
+    if (deserializeJson(doc, payload) == DeserializationError::Ok && MicroserviceHealthResponse::fromJson(doc, health)) {
       Serial.print("  Overall:   "); Serial.println(health.status);
       Serial.print("  Version:   "); Serial.println(health.version);
       Serial.print("  Timestamp: "); Serial.println(health.timestamp);
@@ -142,7 +115,14 @@ static void print_service_health(const char* service, const char* label, const c
         Serial.print("ms)  ");
         Serial.println(c.message);
       }
-      Serial.println(health.isHealthy() ? "  >> All components healthy." : "  >> WARNING: One or more components degraded.");
+      if (health.isHealthy()) {
+        healthValue = 0;
+        Serial.println("  >> All components healthy.");
+      }
+      else {
+        healthValue = 1;
+        Serial.println("  >> WARNING: One or more components degraded.");
+      }
     } else {
       Serial.println("  ERROR: Failed to deserialize response.");
       Serial.println(payload);
@@ -154,10 +134,15 @@ static void print_service_health(const char* service, const char* label, const c
 
   http.end();
   Serial.println();
+  return healthValue;
 }
 
 void fetch_api_health_checks() {
-  for (const ServiceHealthEndpoint& e : HEALTH_ENDPOINTS) {
-    print_service_health(e.service, e.label, e.url);
+  static ServiceMonitorUI::ServiceMonitorStatus statusResults[SERVICE_TRACKING_COUNT];
+  for (int i = 0; i < SERVICE_TRACKING_COUNT; ++i) {
+    statusResults[i].ServiceName = HEALTH_ENDPOINTS[i].serviceName;
+    statusResults[i].StagingStatus = get_service_health(statusResults[i].ServiceName.c_str(), HEALTH_ENDPOINTS[i].stagingURL);
+    statusResults[i].ProdStatus = get_service_health(statusResults[i].ServiceName.c_str(), HEALTH_ENDPOINTS[i].prodURL);
   }
+  ServiceMonitorUI::UpdateUI(statusResults);
 }

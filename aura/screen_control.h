@@ -1,7 +1,10 @@
 #ifndef SCREEN_CONTROL_H
 #define SCREEN_CONTROL_H
 
+#include <WiFiManager.h>
 #include <lvgl.h>
+#include <vector>
+#include <functional>
 #include "translations.h"
 
 #define XPT2046_IRQ 36   // T_IRQ
@@ -22,6 +25,12 @@ SPIClass touchscreenSPI = SPIClass(VSPI);
 XPT2046_Touchscreen touchscreen(XPT2046_CS, XPT2046_IRQ);
 uint32_t draw_buf[DRAW_BUF_SIZE / 4];
 int x, y, z;
+
+std::vector<std::function<void(lv_indev_data_t *)>> mouseClickCallbacks;
+
+void addMouseClickCallback(std::function<void(lv_indev_data_t *)> callback) {
+  mouseClickCallbacks.push_back(callback);
+}
 
 static void initTFT()
 {
@@ -65,6 +74,38 @@ void wifi_splash_screen() {
   lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_center(lbl);
   lv_scr_load(scr);
+}
+
+static void touchscreen_read(lv_indev_t *indev, lv_indev_data_t *data) {
+  if (touchscreen.tirqTouched() && touchscreen.touched()) {
+    TS_Point p = touchscreen.getPoint();
+
+    x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
+    y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
+    z = p.z;
+
+    for (auto& cb : mouseClickCallbacks) {
+      cb(data);
+    }
+
+    data->state = LV_INDEV_STATE_PRESSED;
+    data->point.x = x;
+    data->point.y = y;
+  } else {
+    data->state = LV_INDEV_STATE_RELEASED;
+  }
+}
+
+static void initInputDevice()
+{
+  lv_indev_t *inputDevice = lv_indev_create();
+  lv_indev_set_type(inputDevice, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(inputDevice, touchscreen_read);
+}
+
+static void apModeCallback(WiFiManager *mgr) {
+  wifi_splash_screen();
+  flush_wifi_splashscreen();
 }
 
 #endif // SCREEN_CONTROL_H
